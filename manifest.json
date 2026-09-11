@@ -1,0 +1,15 @@
+{
+  "name": "Livsstilslaben",
+  "short_name": "Livsstilslaben",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f6f4ee",
+  "theme_color": "#2f5d4f",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

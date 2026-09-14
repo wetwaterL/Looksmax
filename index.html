@@ -151,7 +151,10 @@
       <h1>Livsstilslaben</h1>
       <p>Idéer og systemer for et bedre liv — samlet, testet, diskutert.</p>
     </div>
-    <button id="newTopicBtn">+ Ny idé</button>
+    <div style="display:flex;gap:8px;">
+      <button class="ghost" id="settingsBtn" title="Innstillinger" style="padding:10px 14px;">&#9881;</button>
+      <button id="newTopicBtn">+ Ny idé</button>
+    </div>
   </header>
 
   <div id="statusLine" class="status" style="display:none;"></div>
@@ -169,7 +172,10 @@
       <button class="ghost" id="backBtn">&larr; Tilbake</button>
     </div>
     <div class="detail">
-      <span class="badge moss" id="detailCategory"></span>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <span class="badge moss" id="detailCategory"></span>
+        <button id="deleteTopicBtn" style="display:none;background:transparent;border:1px solid var(--clay);color:var(--clay);padding:6px 12px;font-size:12.5px;border-radius:8px;">Slett tema</button>
+      </div>
       <h2 id="detailTitle"></h2>
       <p class="desc" id="detailDesc"></p>
       <div id="entryList"></div>
@@ -220,6 +226,30 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="settingsOverlay">
+  <div class="modal">
+    <h3 id="settingsTitle">Innstillinger</h3>
+    <div id="settingsLoggedOut">
+      <div class="field">
+        <label>Admin-kode</label>
+        <input type="password" id="adminCodeInput" placeholder="Skriv inn kode">
+      </div>
+      <div id="adminError" class="error" style="display:none;">Feil kode.</div>
+      <div class="modal-actions">
+        <button class="secondary" id="closeSettings">Lukk</button>
+        <button id="submitAdminCode">Logg inn</button>
+      </div>
+    </div>
+    <div id="settingsLoggedIn" style="display:none;">
+      <p class="hint" style="margin-bottom:16px;">Du er logget inn som admin. Du kan nå slette temaer og innlegg.</p>
+      <div class="modal-actions">
+        <button class="secondary" id="closeSettings2">Lukk</button>
+        <button id="logoutAdmin">Logg ut</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script>
@@ -235,10 +265,14 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const docRef = db.collection('livsstilslaben').doc('data');
 
+// Endre koden her til det du vil ha som admin-passord:
+const ADMIN_CODE = "livsstil2026";
+
 let data = { topics: [] };
 let currentTopicId = null;
 let activeCategory = null;
 let selectedStance = null;
+let isAdmin = localStorage.getItem('ll_admin') === 'true';
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
@@ -331,12 +365,27 @@ function renderList(){
     card.innerHTML = `
       <div class="row">
         <h3>${escapeHtml(t.title)}</h3>
-        ${t.category ? `<span class="badge moss">${escapeHtml(t.category)}</span>` : ''}
+        <div style="display:flex;gap:8px;align-items:center;">
+          ${t.category ? `<span class="badge moss">${escapeHtml(t.category)}</span>` : ''}
+          ${isAdmin ? `<button class="del-topic-btn" data-id="${t.id}" style="background:transparent;border:1px solid var(--clay);color:var(--clay);padding:4px 9px;font-size:12px;border-radius:8px;">Slett</button>` : ''}
+        </div>
       </div>
       <p class="desc">${escapeHtml(t.description||'')}</p>
       <div class="meta"><span>${n} ${n===1?'innspill':'innspill'}</span></div>
     `;
-    card.onclick = () => openDetail(t.id);
+    card.onclick = (e) => {
+      if(e.target.classList.contains('del-topic-btn')) return;
+      openDetail(t.id);
+    };
+    const delBtn = card.querySelector('.del-topic-btn');
+    if(delBtn){
+      delBtn.onclick = async (e) => {
+        e.stopPropagation();
+        if(!confirm(`Slette "${t.title}" og alle innspill under den?`)) return;
+        data.topics = data.topics.filter(x => x.id !== t.id);
+        await saveData();
+      };
+    }
     listEl.appendChild(card);
   });
 }
@@ -355,6 +404,14 @@ function openDetail(id){
   document.getElementById('entryText').value = '';
   document.getElementById('entryLink').value = '';
   document.getElementById('entryError').style.display = 'none';
+  const delTopicBtn = document.getElementById('deleteTopicBtn');
+  delTopicBtn.style.display = isAdmin ? 'inline-block' : 'none';
+  delTopicBtn.onclick = async () => {
+    if(!confirm(`Slette "${t.title}" og alle innspill under den?`)) return;
+    data.topics = data.topics.filter(x => x.id !== t.id);
+    await saveData();
+    document.getElementById('backBtn').click();
+  };
   renderEntries(t);
 }
 
@@ -367,12 +424,22 @@ function renderEntries(t){
   }
   el.innerHTML = entries.map(e => `
     <div class="entry ${e.stance}">
-      <span class="entry-tag">${e.stance}</span>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+        <span class="entry-tag">${e.stance}</span>
+        ${isAdmin ? `<button class="del-entry-btn" data-id="${e.id}" style="background:transparent;border:none;color:var(--clay);font-family:Arial,sans-serif;font-size:12px;cursor:pointer;">Slett</button>` : ''}
+      </div>
       <p>${escapeHtml(e.text)}</p>
       ${e.link ? `<a href="${escapeHtml(e.link)}" target="_blank" rel="noopener">${escapeHtml(e.link)}</a><br>` : ''}
       <span class="entry-meta">${new Date(e.createdAt).toLocaleDateString('no-NO')}</span>
     </div>
   `).join('');
+  el.querySelectorAll('.del-entry-btn').forEach(btn => {
+    btn.onclick = async () => {
+      if(!confirm('Slette dette innspillet?')) return;
+      t.entries = (t.entries||[]).filter(x => x.id !== btn.getAttribute('data-id'));
+      await saveData();
+    };
+  });
 }
 
 document.getElementById('backBtn').onclick = () => {
@@ -442,6 +509,47 @@ document.getElementById('saveNew').onclick = async () => {
   data.topics.push({ id: uid(), title, category, description, entries: [], createdAt: Date.now() });
   await saveData();
   document.getElementById('modalOverlay').classList.remove('open');
+};
+
+function refreshSettingsView(){
+  document.getElementById('settingsLoggedOut').style.display = isAdmin ? 'none' : 'block';
+  document.getElementById('settingsLoggedIn').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('adminCodeInput').value = '';
+  document.getElementById('adminError').style.display = 'none';
+}
+
+document.getElementById('settingsBtn').onclick = () => {
+  refreshSettingsView();
+  document.getElementById('settingsOverlay').classList.add('open');
+};
+document.getElementById('closeSettings').onclick = () => document.getElementById('settingsOverlay').classList.remove('open');
+document.getElementById('closeSettings2').onclick = () => document.getElementById('settingsOverlay').classList.remove('open');
+
+document.getElementById('submitAdminCode').onclick = () => {
+  const code = document.getElementById('adminCodeInput').value;
+  if(code === ADMIN_CODE){
+    isAdmin = true;
+    localStorage.setItem('ll_admin', 'true');
+    refreshSettingsView();
+    render();
+    if(currentTopicId){
+      const t = data.topics.find(x => x.id === currentTopicId);
+      if(t){ renderEntries(t); document.getElementById('deleteTopicBtn').style.display = 'inline-block'; }
+    }
+  } else {
+    document.getElementById('adminError').style.display = 'block';
+  }
+};
+
+document.getElementById('logoutAdmin').onclick = () => {
+  isAdmin = false;
+  localStorage.removeItem('ll_admin');
+  document.getElementById('settingsOverlay').classList.remove('open');
+  render();
+  if(currentTopicId){
+    const t = data.topics.find(x => x.id === currentTopicId);
+    if(t){ renderEntries(t); document.getElementById('deleteTopicBtn').style.display = 'none'; }
+  }
 };
 
 if('serviceWorker' in navigator){
